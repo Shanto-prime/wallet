@@ -1,73 +1,75 @@
-# Personal Finance Tracker
+# Finance Tracker
 
-A local-first personal finance app for Android with Google Drive backup.
+Personal finance app — track cash, bank, mobile wallets, lent/owe. Local-first with backup-to-anywhere.
+
+## Setup
+
+1. Install Node.js v20+ from https://nodejs.org
+2. In project folder, run:
+   ```
+   npm install --legacy-peer-deps
+   ```
+3. Start dev server:
+   ```
+   npx expo start
+   ```
+4. Scan QR with Expo Go app on Android.
 
 ## Features
 
-- Track cash, bank accounts, mobile wallets
-- Record income, expense, lent, owe transactions
-- Real-time balance calculation
-- Daily motivational/warning notifications based on balance
-- Auto + manual Google Drive backup
-- Export as PDF (with charts) or image
-- Filter exports: last 30 days, last 10 transactions, income only, expense only, etc.
+- **Tracking**: cash, bank accounts, mobile wallets (bKash, Nagad, Rocket), with custom accounts
+- **Transactions**: income, expense, lent, borrowed, repayments
+- **Auto balance calculation**: real-time, including lent/owe net worth
+- **History**: filterable list with delete
+- **Export**: PDF report with charts (pie + bar) for filtered periods
+- **Backup**: JSON export via system share sheet — save to Drive, email, or anywhere
+- **Restore**: from backup JSON file
+- **Notifications**: daily 9 AM and 9 PM reminders with positive/negative-aware messages
 
-## Setup (one-time)
+## How backup to Google Drive works
 
-### 1. Install Node.js
+1. Settings → Backup Now
+2. Android share sheet appears
+3. Pick "Save to Drive" (or any other destination)
+4. File `finance-backup-YYYY-MM-DD.json` is uploaded
 
-Download from https://nodejs.org (LTS version, v20+).
+To restore: Settings → Restore → pick the JSON file from Drive (open Drive app, tap Download, then in Settings → Restore browse to it).
 
-### 2. Install Expo CLI globally
+## How notifications work
 
-```bash
-npm install -g expo-cli eas-cli
+Toggle on in Settings → Notifications. Two notifications scheduled per day:
+- 9:00 AM and 9:00 PM
+- Message text reflects balance state at the time you toggled — re-toggle or open the Settings tab to refresh messages with current balance.
+
+## Build standalone APK (later)
+
+When you're ready to make a permanent install on your phone:
 ```
-
-### 3. Install Expo Go on your Android phone
-
-Get it from Play Store. This lets you test the app live without building an APK.
-
-### 4. Install project dependencies
-
-From the project folder:
-
-```bash
-npm install
+npm install -g eas-cli
+eas login
+eas build:configure
+eas build --platform android --profile preview
 ```
-
-### 5. Run the app
-
-```bash
-npx expo start
-```
-
-Scan the QR code with Expo Go app on your phone. The app will load.
 
 ## Project structure
 
 ```
 src/
-  db/           SQLite setup and queries
-  screens/      App screens (Home, AddTransaction, etc.)
-  components/   Reusable UI pieces
-  services/     Drive backup, notifications, export
-  utils/        Helpers (balance calc, date formatting)
+  db/           SQLite schema and CRUD
+  screens/      Home, AddTransaction, Accounts, History, Export, Settings
+  services/     drive (backup), notifications, export (PDF)
+  utils/        balance calculation
   context/      Global app state
 ```
 
-## Build APK for permanent install
+## Upgrading to true Drive auto-sync (optional, advanced)
 
-After development is done:
+The current backup uses Android's share sheet, which works in Expo Go.
 
-```bash
-eas build --platform android --profile preview
-```
+For automatic Drive sync without picking from share sheet, you need:
+1. Create OAuth 2.0 client in Google Cloud Console
+2. Add `expo-dev-client` package
+3. Build a development client APK (replaces Expo Go for your project)
+4. Use `expo-auth-session` with your OAuth client ID
 
-This gives you a downloadable APK.
-
-## Google Drive setup
-
-See `docs/google-drive-setup.md` for steps to create OAuth credentials.
-This is needed before backup will work.
-=======
+Ask if you want this — it's a separate ~30 min setup.

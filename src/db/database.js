@@ -1,12 +1,18 @@
 import * as SQLite from 'expo-sqlite';
 
 let db = null;
+let initPromise = null;
 
 export async function getDb() {
   if (db) return db;
-  db = await SQLite.openDatabaseAsync('finance.db');
-  await initSchema();
-  return db;
+  if (initPromise) return initPromise;
+  initPromise = (async () => {
+    const opened = await SQLite.openDatabaseAsync('finance.db');
+    db = opened;
+    await initSchema();
+    return db;
+  })();
+  return initPromise;
 }
 
 async function initSchema() {
@@ -46,7 +52,6 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_tx_type ON transactions(type);
   `);
 
-  // Seed default accounts on first run
   const existing = await db.getFirstAsync('SELECT COUNT(*) as c FROM accounts');
   if (existing.c === 0) {
     await db.execAsync(`
@@ -62,6 +67,26 @@ async function initSchema() {
   }
 }
 
+/**
+ * Wraps a DB call to auto-recover when the native handle goes stale
+ * (the "nativeDatabase has been rejected / NullPointerException" issue).
+ */
+export async function safeQuery(fn) {
+  try {
+    const d = await getDb();
+    return await fn(d);
+  } catch (e) {
+    const msg = String(e?.message || e);
+    if (msg.includes('nativeDatabase') || msg.includes('NullPointer')) {
+      db = null;
+      initPromise = null;
+      const d = await getDb();
+      return await fn(d);
+    }
+    throw e;
+  }
+}
+
 export async function resetDb() {
   const d = await getDb();
   await d.execAsync(`
@@ -70,5 +95,14 @@ export async function resetDb() {
     DROP TABLE IF EXISTS accounts;
   `);
   db = null;
+  initPromise = null;
   return getDb();
+}
+
+export async function closeDb() {
+  if (db) {
+    try { await db.closeAsync(); } catch {}
+    db = null;
+    initPromise = null;
+  }
 }

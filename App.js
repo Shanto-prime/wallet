@@ -4,6 +4,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppProvider } from './src/context/AppContext';
 
 import HomeScreen from './src/screens/HomeScreen';
@@ -27,24 +28,26 @@ function HomeStack() {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <AppProvider>
-        <NavigationContainer>
-          <Tab.Navigator
-            screenOptions={{
-              tabBarActiveTintColor: '#1976d2',
-              headerShown: false,
-            }}
-          >
-            <Tab.Screen name="Home" component={HomeStack} />
-            <Tab.Screen name="Accounts" component={AccountsScreen} />
-            <Tab.Screen name="History" component={HistoryScreen} />
-            <Tab.Screen name="Export" component={ExportScreen} />
-            <Tab.Screen name="Settings" component={SettingsScreen} />
-          </Tab.Navigator>
-        </NavigationContainer>
-      </AppProvider>
-      <StatusBar style="auto" />
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AppProvider>
+          <NavigationContainer>
+            <Tab.Navigator
+              screenOptions={{
+                tabBarActiveTintColor: '#1976d2',
+                headerShown: false,
+              }}
+            >
+              <Tab.Screen name="Home" component={HomeStack} />
+              <Tab.Screen name="Accounts" component={AccountsScreen} />
+              <Tab.Screen name="History" component={HistoryScreen} />
+              <Tab.Screen name="Export" component={ExportScreen} />
+              <Tab.Screen name="Settings" component={SettingsScreen} />
+            </Tab.Navigator>
+          </NavigationContainer>
+        </AppProvider>
+        <StatusBar style="auto" />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

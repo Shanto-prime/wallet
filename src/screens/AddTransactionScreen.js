@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { addTransaction } from '../db/transactions';
 
@@ -13,35 +13,54 @@ const TX_TYPES = [
 ];
 
 export default function AddTransactionScreen({ navigation }) {
-  const { accounts, refresh } = useApp();
+  const { accounts, refresh, loading } = useApp();
   const [type, setType] = useState('income');
   const [amount, setAmount] = useState('');
-  const [accountId, setAccountId] = useState(accounts[0]?.id);
+  const [accountId, setAccountId] = useState(null);
   const [partyName, setPartyName] = useState('');
   const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (accounts.length > 0 && accountId === null) {
+      setAccountId(accounts[0].id);
+    }
+  }, [accounts, accountId]);
 
   const needsParty = ['lent', 'owe', 'repay_lent', 'repay_owe'].includes(type);
 
   const onSave = async () => {
     const num = parseFloat(amount);
-    if (!num || num <= 0) return Alert.alert('Invalid', 'Enter a valid amount');
-    if (!accountId) return Alert.alert('Invalid', 'Select an account');
-    if (needsParty && !partyName.trim()) return Alert.alert('Required', 'Enter the person\'s name');
+    if (!num || num <= 0) return Alert.alert('Invalid', 'Enter a valid amount greater than 0');
+    if (!accountId) return Alert.alert('Invalid', 'Please select an account');
+    if (needsParty && !partyName.trim()) return Alert.alert('Required', "Enter the person's name");
 
+    setSaving(true);
     try {
       await addTransaction({
-        type,
-        amount: num,
-        accountId,
+        type, amount: num, accountId,
         partyName: partyName.trim() || null,
         note: note.trim() || null,
       });
       await refresh();
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Error', e.message);
+      Alert.alert('Error', e.message || 'Failed to save transaction');
+    } finally {
+      setSaving(false);
     }
   };
+
+  if (loading || accounts.length === 0) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#1976d2" />
+        <Text style={{ marginTop: 12, color: '#666' }}>
+          {loading ? 'Loading accounts…' : 'No accounts found.'}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container}>
@@ -86,26 +105,15 @@ export default function AddTransactionScreen({ navigation }) {
       {needsParty && (
         <>
           <Text style={styles.label}>Person's Name</Text>
-          <TextInput
-            style={styles.input}
-            value={partyName}
-            onChangeText={setPartyName}
-            placeholder="e.g. Sagar"
-          />
+          <TextInput style={styles.input} value={partyName} onChangeText={setPartyName} placeholder="e.g. Sagar" />
         </>
       )}
 
       <Text style={styles.label}>Note (optional)</Text>
-      <TextInput
-        style={[styles.input, { height: 80 }]}
-        value={note}
-        onChangeText={setNote}
-        placeholder="Any details..."
-        multiline
-      />
+      <TextInput style={[styles.input, { height: 80 }]} value={note} onChangeText={setNote} placeholder="Any details..." multiline />
 
-      <TouchableOpacity style={styles.saveBtn} onPress={onSave}>
-        <Text style={styles.saveBtnText}>Save Transaction</Text>
+      <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.6 }]} onPress={onSave} disabled={saving}>
+        <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Save Transaction'}</Text>
       </TouchableOpacity>
       <View style={{ height: 40 }} />
     </ScrollView>
@@ -114,6 +122,7 @@ export default function AddTransactionScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5', padding: 16 },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   label: { fontSize: 14, fontWeight: '600', marginTop: 12, marginBottom: 8, color: '#333' },
   input: { backgroundColor: 'white', borderRadius: 8, padding: 12, fontSize: 16, borderWidth: 1, borderColor: '#ddd' },
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
