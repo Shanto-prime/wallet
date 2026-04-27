@@ -1,7 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View, Text, TextInput, TouchableOpacity, ScrollView, StyleSheet,
+  Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Keyboard,
+} from 'react-native';
 import { useApp } from '../context/AppContext';
 import { addTransaction } from '../db/transactions';
+import { triggerSync } from '../services/sync';
 
 const TX_TYPES = [
   { key: 'income', label: 'Income', color: '#388e3c', desc: 'Money received' },
@@ -21,6 +25,9 @@ export default function AddTransactionScreen({ navigation }) {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const scrollRef = useRef(null);
+  const noteRef = useRef(null);
+
   useEffect(() => {
     if (accounts.length > 0 && accountId === null) {
       setAccountId(accounts[0].id);
@@ -30,6 +37,7 @@ export default function AddTransactionScreen({ navigation }) {
   const needsParty = ['lent', 'owe', 'repay_lent', 'repay_owe'].includes(type);
 
   const onSave = async () => {
+    Keyboard.dismiss();
     const num = parseFloat(amount);
     if (!num || num <= 0) return Alert.alert('Invalid', 'Enter a valid amount greater than 0');
     if (!accountId) return Alert.alert('Invalid', 'Please select an account');
@@ -43,12 +51,21 @@ export default function AddTransactionScreen({ navigation }) {
         note: note.trim() || null,
       });
       await refresh();
+      // Trigger Drive sync (silent if not configured / offline)
+      triggerSync().catch(() => {});
       navigation.goBack();
     } catch (e) {
       Alert.alert('Error', e.message || 'Failed to save transaction');
     } finally {
       setSaving(false);
     }
+  };
+
+  const onNoteFocus = () => {
+    // Scroll the note field into view above the keyboard
+    setTimeout(() => {
+      scrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
   };
 
   if (loading || accounts.length === 0) {
@@ -63,60 +80,91 @@ export default function AddTransactionScreen({ navigation }) {
   }
 
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.label}>Type</Text>
-      <View style={styles.typeGrid}>
-        {TX_TYPES.map(t => (
-          <TouchableOpacity
-            key={t.key}
-            style={[styles.typeBtn, type === t.key && { backgroundColor: t.color, borderColor: t.color }]}
-            onPress={() => setType(t.key)}
-          >
-            <Text style={[styles.typeBtnLabel, type === t.key && styles.typeBtnLabelActive]}>{t.label}</Text>
-            <Text style={[styles.typeBtnDesc, type === t.key && styles.typeBtnLabelActive]}>{t.desc}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+    >
+      <ScrollView
+        ref={scrollRef}
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 80 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.label}>Type</Text>
+        <View style={styles.typeGrid}>
+          {TX_TYPES.map(t => (
+            <TouchableOpacity
+              key={t.key}
+              style={[styles.typeBtn, type === t.key && { backgroundColor: t.color, borderColor: t.color }]}
+              onPress={() => setType(t.key)}
+            >
+              <Text style={[styles.typeBtnLabel, type === t.key && styles.typeBtnLabelActive]}>{t.label}</Text>
+              <Text style={[styles.typeBtnDesc, type === t.key && styles.typeBtnLabelActive]}>{t.desc}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-      <Text style={styles.label}>Amount (BDT)</Text>
-      <TextInput
-        style={styles.input}
-        keyboardType="decimal-pad"
-        value={amount}
-        onChangeText={setAmount}
-        placeholder="0.00"
-      />
+        <Text style={styles.label}>Amount (BDT)</Text>
+        <TextInput
+          style={styles.input}
+          keyboardType="decimal-pad"
+          value={amount}
+          onChangeText={setAmount}
+          placeholder="0.00"
+          returnKeyType="done"
+        />
 
-      <Text style={styles.label}>Account</Text>
-      <View style={styles.accountList}>
-        {accounts.map(a => (
-          <TouchableOpacity
-            key={a.id}
-            style={[styles.accountChip, accountId === a.id && styles.accountChipActive]}
-            onPress={() => setAccountId(a.id)}
-          >
-            <Text style={[styles.accountChipText, accountId === a.id && styles.accountChipTextActive]}>
-              {a.name}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+        <Text style={styles.label}>Account</Text>
+        <View style={styles.accountList}>
+          {accounts.map(a => (
+            <TouchableOpacity
+              key={a.id}
+              style={[styles.accountChip, accountId === a.id && styles.accountChipActive]}
+              onPress={() => setAccountId(a.id)}
+            >
+              <Text style={[styles.accountChipText, accountId === a.id && styles.accountChipTextActive]}>
+                {a.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-      {needsParty && (
-        <>
-          <Text style={styles.label}>Person's Name</Text>
-          <TextInput style={styles.input} value={partyName} onChangeText={setPartyName} placeholder="e.g. Sagar" />
-        </>
-      )}
+        {needsParty && (
+          <>
+            <Text style={styles.label}>Person's Name</Text>
+            <TextInput
+              style={styles.input}
+              value={partyName}
+              onChangeText={setPartyName}
+              placeholder="e.g. Sagar"
+              returnKeyType="next"
+              onSubmitEditing={() => noteRef.current?.focus()}
+            />
+          </>
+        )}
 
-      <Text style={styles.label}>Note (optional)</Text>
-      <TextInput style={[styles.input, { height: 80 }]} value={note} onChangeText={setNote} placeholder="Any details..." multiline />
+        <Text style={styles.label}>Note (optional)</Text>
+        <TextInput
+          ref={noteRef}
+          style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+          value={note}
+          onChangeText={setNote}
+          placeholder="Any details..."
+          multiline
+          onFocus={onNoteFocus}
+        />
 
-      <TouchableOpacity style={[styles.saveBtn, saving && { opacity: 0.6 }]} onPress={onSave} disabled={saving}>
-        <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Save Transaction'}</Text>
-      </TouchableOpacity>
-      <View style={{ height: 40 }} />
-    </ScrollView>
+        <TouchableOpacity
+          style={[styles.saveBtn, saving && { opacity: 0.6 }]}
+          onPress={onSave}
+          disabled={saving}
+        >
+          <Text style={styles.saveBtnText}>{saving ? 'Saving…' : 'Save Transaction'}</Text>
+        </TouchableOpacity>
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

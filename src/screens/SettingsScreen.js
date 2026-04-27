@@ -1,10 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resetDb } from '../db/database';
 import { useApp } from '../context/AppContext';
-import { backupToCloud, restoreFromBackupFile } from '../services/drive';
+import {
+  signIn, signOut, isSignedIn, restoreFromDrive,
+  shareBackupFile, restoreFromBackupFile,
+} from '../services/drive';
+import { syncNow, getSyncStatus, setAutoSync } from '../services/sync';
 import {
   scheduleNotifications, cancelNotifications,
   sendTestNotification, getScheduledCount,
@@ -15,22 +21,109 @@ export default function SettingsScreen() {
   const [autoBackup, setAutoBackup] = useState(true);
   const [notifEnabled, setNotifEnabled] = useState(true);
   const [scheduledCount, setScheduledCount] = useState(0);
+  const [signedIn, setSignedIn] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      const ab = await AsyncStorage.getItem('autoBackup');
-      const ne = await AsyncStorage.getItem('notifEnabled');
-      setAutoBackup(ab !== 'false');
-      setNotifEnabled(ne !== 'false');
-      try {
-        setScheduledCount(await getScheduledCount());
-      } catch {}
-    })();
+  const reload = useCallback(async () => {
+    const ne = await AsyncStorage.getItem('notifEnabled');
+    setNotifEnabled(ne !== 'false');
+    setSignedIn(await isSignedIn());
+    const status = await getSyncStatus();
+    setSyncStatus(status);
+    setAutoBackup(status.autoEnabled);
+    try { setScheduledCount(await getScheduledCount()); } catch {}
   }, []);
+
+  useFocusEffect(useCallback(() => { reload(); }, [reload]));
+
+  const onSignIn = async () => {
+    setBusy(true);
+    try {
+      await signIn();
+      await reload();
+      Alert.alert('Connected', 'Google Drive connected. Auto-sync is active.');
+    } catch (e) {
+      Alert.alert('Sign-in failed', e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSignOut = () => {
+    Alert.alert('Disconnect Drive?', 'You can sign in again any time.', [
+      { text: 'Cancel' },
+      { text: 'Disconnect', style: 'destructive', onPress: async () => {
+        await signOut();
+        await reload();
+      }},
+    ]);
+  };
+
+  const onBackupNow = async () => {
+    setBusy(true);
+    try {
+      await syncNow();
+      await reload();
+      Alert.alert('Backed up', 'Latest data uploaded to Google Drive.');
+    } catch (e) {
+      Alert.alert('Backup failed', e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRestoreFromDrive = () => {
+    Alert.alert('Restore from Drive?', 'This wipes current data and replaces with the latest Drive backup.', [
+      { text: 'Cancel' },
+      { text: 'Restore', style: 'destructive', onPress: async () => {
+        setBusy(true);
+        try {
+          const summary = await restoreFromDrive();
+          await refresh();
+          await reload();
+          Alert.alert('Restored', `${summary.accounts} accounts, ${summary.transactions} transactions.`);
+        } catch (e) {
+          Alert.alert('Restore failed', e.message);
+        } finally {
+          setBusy(false);
+        }
+      }},
+    ]);
+  };
 
   const toggleAutoBackup = async (val) => {
     setAutoBackup(val);
-    await AsyncStorage.setItem('autoBackup', String(val));
+    await setAutoSync(val);
+  };
+
+  const onShareBackup = async () => {
+    try {
+      await shareBackupFile();
+    } catch (e) {
+      Alert.alert('Share failed', e.message);
+    }
+  };
+
+  const onRestoreFromFile = () => {
+    Alert.alert('Restore from File?', 'This wipes current data. Continue?', [
+      { text: 'Cancel' },
+      { text: 'Pick file', style: 'destructive', onPress: async () => {
+        try {
+          const res = await DocumentPicker.getDocumentAsync({
+            type: 'application/json', copyToCacheDirectory: true,
+          });
+          if (res.canceled) return;
+          const file = res.assets?.[0];
+          if (!file) return;
+          const summary = await restoreFromBackupFile(file.uri);
+          await refresh();
+          Alert.alert('Restored', `${summary.accounts} accounts, ${summary.transactions} transactions.`);
+        } catch (e) {
+          Alert.alert('Restore failed', e.message);
+        }
+      }},
+    ]);
   };
 
   const toggleNotif = async (val) => {
@@ -53,111 +146,133 @@ export default function SettingsScreen() {
   const onTestNotif = async () => {
     try {
       await sendTestNotification();
-      Alert.alert('Test sent', 'You should see a notification within 2 seconds.');
+      Alert.alert('Test sent', 'Notification will appear in 2 seconds.');
     } catch (e) {
       Alert.alert('Failed', e.message);
     }
   };
 
-  const onBackupNow = async () => {
-    try {
-      await backupToCloud();
-      // share sheet handles UX; success is implicit
-    } catch (e) {
-      Alert.alert('Backup failed', e.message);
-    }
-  };
-
-  const onRestore = () => {
-    Alert.alert(
-      'Restore from Backup',
-      'This will WIPE all current data and replace it with the backup file. Continue?',
-      [
-        { text: 'Cancel' },
-        { text: 'Pick file', style: 'destructive', onPress: async () => {
-          try {
-            const res = await DocumentPicker.getDocumentAsync({
-              type: 'application/json',
-              copyToCacheDirectory: true,
-            });
-            if (res.canceled) return;
-            const file = res.assets?.[0];
-            if (!file) return;
-            const summary = await restoreFromBackupFile(file.uri);
-            await refresh();
-            Alert.alert(
-              'Restored',
-              `${summary.accounts} accounts, ${summary.transactions} transactions, ${summary.parties} parties.`
-            );
-          } catch (e) {
-            Alert.alert('Restore failed', e.message);
-          }
-        }},
-      ]
-    );
-  };
-
   const onResetAll = () => {
-    Alert.alert(
-      'Wipe All Data',
-      'Delete ALL accounts, transactions and parties? This cannot be undone.',
-      [
-        { text: 'Cancel' },
-        { text: 'Wipe', style: 'destructive', onPress: async () => {
-          await resetDb();
-          await refresh();
-          Alert.alert('Done', 'All data cleared, default accounts restored.');
-        }},
-      ]
-    );
+    Alert.alert('Wipe All Data', 'Delete ALL local data? Drive backup is unaffected.', [
+      { text: 'Cancel' },
+      { text: 'Wipe', style: 'destructive', onPress: async () => {
+        await resetDb();
+        await refresh();
+        Alert.alert('Done', 'Local data cleared.');
+      }},
+    ]);
   };
+
+  const lastBackupText = syncStatus?.last
+    ? formatRelative(syncStatus.last)
+    : 'Never';
 
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Settings</Text>
 
-      <Section title="Backup & Restore">
+      <Section title="Google Drive Sync">
+        {!signedIn ? (
+          <>
+            <Text style={styles.help}>
+              Connect Google Drive to enable automatic backup. Your data syncs whenever you add a transaction (when online).
+            </Text>
+            <TouchableOpacity style={styles.btn} onPress={onSignIn} disabled={busy}>
+              <Ionicons name="logo-google" size={18} color="white" style={{ marginRight: 8 }} />
+              <Text style={styles.btnText}>{busy ? 'Connecting…' : 'Sign in with Google'}</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            <View style={styles.statusBox}>
+              <View style={styles.statusRow}>
+                <Ionicons name="checkmark-circle" size={18} color="#388e3c" />
+                <Text style={styles.statusText}>Connected to Drive</Text>
+              </View>
+              <Text style={styles.statusSub}>Last backup: {lastBackupText}</Text>
+              {syncStatus?.pending && (
+                <Text style={[styles.statusSub, { color: '#f57c00' }]}>
+                  ⏳ Pending sync — will retry when online
+                </Text>
+              )}
+              {!syncStatus?.online && (
+                <Text style={[styles.statusSub, { color: '#d32f2f' }]}>📡 Offline</Text>
+              )}
+            </View>
+
+            <View style={styles.row}>
+              <Text style={styles.rowText}>Auto-sync on changes</Text>
+              <Switch value={autoBackup} onValueChange={toggleAutoBackup} />
+            </View>
+
+            <TouchableOpacity style={styles.btn} onPress={onBackupNow} disabled={busy}>
+              <Ionicons name="cloud-upload" size={18} color="white" style={{ marginRight: 8 }} />
+              <Text style={styles.btnText}>{busy ? 'Backing up…' : 'Backup Now'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.btn, { backgroundColor: '#f57c00' }]} onPress={onRestoreFromDrive} disabled={busy}>
+              <Ionicons name="cloud-download" size={18} color="white" style={{ marginRight: 8 }} />
+              <Text style={styles.btnText}>Restore from Drive</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.btn, { backgroundColor: '#666' }]} onPress={onSignOut}>
+              <Text style={styles.btnText}>Disconnect</Text>
+            </TouchableOpacity>
+          </>
+        )}
+      </Section>
+
+      <Section title="Manual Backup (Share)">
         <Text style={styles.help}>
-          Tap "Backup Now" to export your data as a JSON file, then pick "Save to Drive" from the share menu.
-          To restore, tap "Restore" and pick the backup JSON file from your Files / Drive app.
+          Export a JSON file you can share via WhatsApp, email, or save anywhere.
         </Text>
-        <View style={styles.row}>
-          <Text style={styles.rowText}>Auto-prepare backup daily</Text>
-          <Switch value={autoBackup} onValueChange={toggleAutoBackup} />
-        </View>
-        <TouchableOpacity style={styles.btn} onPress={onBackupNow}>
-          <Text style={styles.btnText}>Backup Now (Save to Drive)</Text>
+        <TouchableOpacity style={[styles.btn, { backgroundColor: '#388e3c' }]} onPress={onShareBackup}>
+          <Ionicons name="share-social" size={18} color="white" style={{ marginRight: 8 }} />
+          <Text style={styles.btnText}>Share Backup File</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.btn, { backgroundColor: '#f57c00' }]} onPress={onRestore}>
-          <Text style={styles.btnText}>Restore from File</Text>
+        <TouchableOpacity style={[styles.btn, { backgroundColor: '#7b1fa2' }]} onPress={onRestoreFromFile}>
+          <Ionicons name="document" size={18} color="white" style={{ marginRight: 8 }} />
+          <Text style={styles.btnText}>Restore from JSON File</Text>
         </TouchableOpacity>
       </Section>
 
       <Section title="Notifications">
         <Text style={styles.help}>
-          Daily reminders at 9 AM and 9 PM. Message changes based on whether your balance is positive or negative.
+          Daily reminders at 9 AM and 9 PM with messages based on your balance.
         </Text>
         <View style={styles.row}>
           <Text style={styles.rowText}>Daily balance reminders</Text>
           <Switch value={notifEnabled} onValueChange={toggleNotif} />
         </View>
-        <Text style={styles.smallNote}>
-          {scheduledCount} scheduled
-        </Text>
+        <Text style={styles.smallNote}>{scheduledCount} scheduled</Text>
         <TouchableOpacity style={[styles.btn, { backgroundColor: '#388e3c' }]} onPress={onTestNotif}>
+          <Ionicons name="notifications" size={18} color="white" style={{ marginRight: 8 }} />
           <Text style={styles.btnText}>Send Test Notification</Text>
         </TouchableOpacity>
       </Section>
 
       <Section title="Danger Zone">
         <TouchableOpacity style={[styles.btn, { backgroundColor: '#d32f2f' }]} onPress={onResetAll}>
-          <Text style={styles.btnText}>Wipe All Data</Text>
+          <Ionicons name="trash" size={18} color="white" style={{ marginRight: 8 }} />
+          <Text style={styles.btnText}>Wipe Local Data</Text>
         </TouchableOpacity>
       </Section>
 
       <View style={{ height: 40 }} />
     </ScrollView>
   );
+}
+
+function formatRelative(date) {
+  const diff = Date.now() - date.getTime();
+  const min = Math.floor(diff / 60_000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.floor(hr / 24);
+  if (d < 7) return `${d}d ago`;
+  return date.toLocaleDateString();
 }
 
 function Section({ title, children }) {
@@ -178,6 +293,10 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
   rowText: { fontSize: 14, flex: 1 },
   smallNote: { fontSize: 11, color: '#888', marginVertical: 4 },
-  btn: { backgroundColor: '#1976d2', padding: 12, borderRadius: 6, alignItems: 'center', marginTop: 8 },
+  btn: { backgroundColor: '#1976d2', padding: 12, borderRadius: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 8 },
   btnText: { color: 'white', fontWeight: 'bold' },
+  statusBox: { backgroundColor: '#f8f9fa', padding: 12, borderRadius: 6, marginBottom: 12 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  statusText: { fontSize: 14, fontWeight: '600', color: '#333' },
+  statusSub: { fontSize: 12, color: '#666', marginTop: 4 },
 });

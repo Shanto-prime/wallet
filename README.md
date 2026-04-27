@@ -1,75 +1,68 @@
 # Finance Tracker
 
-Personal finance app — track cash, bank, mobile wallets, lent/owe. Local-first with backup-to-anywhere.
+Personal finance app — track cash, bank, mobile wallets, lent/owe. With Google Drive auto-sync.
 
-## Setup
+## Quick start (Expo Go — limited features)
 
-1. Install Node.js v20+ from https://nodejs.org
-2. In project folder, run:
-   ```
-   npm install --legacy-peer-deps
-   ```
-3. Start dev server:
-   ```
-   npx expo start
-   ```
-4. Scan QR with Expo Go app on Android.
+```
+npm install --legacy-peer-deps
+npx expo start
+```
+
+Scan QR with Expo Go. Drive auto-sync **will not work** in Expo Go (uses share-sheet manual backup as fallback).
+
+## Full setup (Drive auto-sync)
+
+For automatic Drive backup on every transaction:
+1. Read **GOOGLE_DRIVE_SETUP.md**
+2. Set up Google Cloud OAuth (~10 min)
+3. Build a development APK with EAS (~15 min)
+4. Use that APK instead of Expo Go
 
 ## Features
 
-- **Tracking**: cash, bank accounts, mobile wallets (bKash, Nagad, Rocket), with custom accounts
-- **Transactions**: income, expense, lent, borrowed, repayments
-- **Auto balance calculation**: real-time, including lent/owe net worth
-- **History**: filterable list with delete
-- **Export**: PDF report with charts (pie + bar) for filtered periods
-- **Backup**: JSON export via system share sheet — save to Drive, email, or anywhere
-- **Restore**: from backup JSON file
-- **Notifications**: daily 9 AM and 9 PM reminders with positive/negative-aware messages
+- Income, expense, lent, borrowed, repayments
+- Cash, bank accounts, mobile wallets (bKash, Nagad, Rocket, custom)
+- Real-time balance + lent/owe tracking
+- PDF export with charts (pie + bar)
+- JSON backup to Drive (auto on transaction, when online)
+- Manual share backup (works in Expo Go)
+- Daily 9 AM / 9 PM notifications based on positive/negative balance
+- Network-aware: queues sync when offline, runs on reconnect
 
-## How backup to Google Drive works
+## How auto-sync works
 
-1. Settings → Backup Now
-2. Android share sheet appears
-3. Pick "Save to Drive" (or any other destination)
-4. File `finance-backup-YYYY-MM-DD.json` is uploaded
+1. You add a transaction
+2. Sync triggers after 3 second debounce (so rapid edits coalesce)
+3. If online + signed in to Drive → upload immediately
+4. If offline → mark "pending"; auto-runs when network returns
+5. Each upload **overwrites** the previous backup (single file `finance-backup.json` in Drive's app data folder)
 
-To restore: Settings → Restore → pick the JSON file from Drive (open Drive app, tap Download, then in Settings → Restore browse to it).
-
-## How notifications work
-
-Toggle on in Settings → Notifications. Two notifications scheduled per day:
-- 9:00 AM and 9:00 PM
-- Message text reflects balance state at the time you toggled — re-toggle or open the Settings tab to refresh messages with current balance.
-
-## Build standalone APK (later)
-
-When you're ready to make a permanent install on your phone:
-```
-npm install -g eas-cli
-eas login
-eas build:configure
-eas build --platform android --profile preview
-```
+The Drive backup lives in a hidden app folder, invisible from your main Drive UI.
+View it at https://drive.google.com → ⚙ Settings → Manage apps → Finance Tracker.
 
 ## Project structure
 
 ```
 src/
-  db/           SQLite schema and CRUD
-  screens/      Home, AddTransaction, Accounts, History, Export, Settings
-  services/     drive (backup), notifications, export (PDF)
-  utils/        balance calculation
-  context/      Global app state
+  config/google.js       OAuth client IDs (you fill these)
+  db/                    SQLite schema and CRUD
+  screens/               UI screens
+  services/
+    drive.js             OAuth + Drive API
+    sync.js              Auto-sync orchestrator
+    notifications.js     Daily reminders
+    export.js            PDF generation
+  utils/balance.js       Net worth calculation
+  context/AppContext.js  Global state
 ```
 
-## Upgrading to true Drive auto-sync (optional, advanced)
+## Build standalone APK
 
-The current backup uses Android's share sheet, which works in Expo Go.
+After Google setup is done:
 
-For automatic Drive sync without picking from share sheet, you need:
-1. Create OAuth 2.0 client in Google Cloud Console
-2. Add `expo-dev-client` package
-3. Build a development client APK (replaces Expo Go for your project)
-4. Use `expo-auth-session` with your OAuth client ID
+```
+eas build --profile preview --platform android
+```
 
-Ask if you want this — it's a separate ~30 min setup.
+Same OAuth credentials work for the release APK.
