@@ -1,25 +1,33 @@
 {
-    "expo": {
-        "name": "Finance Tracker",
-        "slug": "finance-tracker",
-        "version": "1.0.0",
-        "orientation": "portrait",
-        "userInterfaceStyle": "light",
-        "newArchEnabled": true,
-        "scheme": "financetracker",
-        "android": {
-            "package": "com.test.financetracker",
-            "versionCode": 1,
-            "edgeToEdgeEnabled": true,
-            "permissions": [
-                "RECEIVE_BOOT_COMPLETED",
-                "SCHEDULE_EXACT_ALARM",
-                "WAKE_LOCK",
-                "VIBRATE",
-                "INTERNET",
-                "ACCESS_NETWORK_STATE"
-            ]
-        },
-        "plugins": ["expo-notifications", "expo-document-picker"]
+  "expo": {
+    "name": "Finance Tracker",
+    "slug": "finance-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "scheme": "financetracker",
+    "android": {
+      "package": "com.test.financetracker",
+      "versionCode": 1,
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "RECEIVE_BOOT_COMPLETED",
+        "SCHEDULE_EXACT_ALARM",
+        "WAKE_LOCK",
+        "VIBRATE",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ]
+    },
+    "plugins": [
+      "expo-notifications",
+      "expo-document-picker"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "acbd3108-fed3-48ee-a1a0-a25021f9aa1c"
+      }
     }
+  }
 }
